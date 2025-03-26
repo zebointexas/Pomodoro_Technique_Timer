@@ -40,7 +40,7 @@ struct ContentView: View {
     @State private var alarmTimer: Timer?
     
     // Alarm Sound
-    private let systemAlarmSoundID: SystemSoundID = 1005
+    private let systemAlarmSoundID: SystemSoundID = 1013
     
     // App Lifecycle Tracking
     @Environment(\.scenePhase) private var scenePhase
