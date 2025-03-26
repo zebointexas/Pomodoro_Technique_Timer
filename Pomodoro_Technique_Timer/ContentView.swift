@@ -45,6 +45,7 @@ struct ContentView: View {
     // App Lifecycle Tracking
     @Environment(\.scenePhase) private var scenePhase
     @State private var backgroundTime: Date?
+    @State private var hasScheduledBreakNotification = false // 标记是否已调度休息阶段通知
     
     var body: some View {
         ZStack {
@@ -179,6 +180,12 @@ struct ContentView: View {
                 // Save background time when app goes to background
                 backgroundTime = Date()
                 
+                // 如果当前是休息阶段且未调度通知，调度通知
+                if !isWorking && isAlarmActive && !hasScheduledBreakNotification {
+                    scheduleBreakSessionNotification()
+                    hasScheduledBreakNotification = true
+                }
+                
                 // Do NOT invalidate the timer during work session
                 // Let the restoreTimerFromBackground handle the elapsed time
                 if !isWorking {
@@ -291,8 +298,9 @@ struct ContentView: View {
         currentBreakTime = (workSessionsCompleted % 4 == 0) ? longBreakTimeTotal : breakTimeTotal
         
         // 如果 app 已经在后台，发送休息阶段通知
-        if scenePhase == .background {
+        if scenePhase == .background && !hasScheduledBreakNotification {
             scheduleBreakSessionNotification()
+            hasScheduledBreakNotification = true
         }
         
         alarmTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
@@ -311,6 +319,9 @@ struct ContentView: View {
     private func startBreakCountdown() {
         isAlarmActive = false
         isTimerRunning = true
+        
+        // 重置通知调度标记
+        hasScheduledBreakNotification = false
         
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             if leftThumbTouching && rightThumbTouching {
@@ -342,6 +353,9 @@ struct ContentView: View {
         
         leftThumbTouching = false
         rightThumbTouching = false
+        
+        // 重置通知调度标记
+        hasScheduledBreakNotification = false
         
         // 调度工作阶段结束的通知
         scheduleWorkSessionNotification()
@@ -385,6 +399,8 @@ struct ContentView: View {
         showRestConfirmation = false
         showStartConfirmation = false
         
+        hasScheduledBreakNotification = false
+        
         // 移除所有未决通知
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     }
@@ -396,10 +412,10 @@ struct ContentView: View {
         let timePassed = Int(Date().timeIntervalSince(backgroundTime))
         
         if isWorking {
-            // Simulate the work timer running in the background
+            // 计算在后台经过的时间，更新剩余工作时间
             currentWorkTime = max(0, currentWorkTime - timePassed)
             if currentWorkTime <= 0 {
-                // Work session ended while in background, transition to break
+                // 工作阶段在后台已经结束，进入休息阶段
                 workSessionsCompleted += 1
                 if workSessionsCompleted == 8 {
                     showRestPrompt = true
@@ -407,11 +423,28 @@ struct ContentView: View {
                     startBreakAlarm()
                 }
             } else {
-                // Work session is still ongoing, restart the timer
-                startWorkTimer()
+                // 工作阶段尚未结束，继续计时而不是重置
+                isTimerRunning = true
+                timer?.invalidate() // 确保旧的 timer 被清理
+                timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+                    if self.currentWorkTime > 0 {
+                        self.currentWorkTime -= 1
+                    }
+                    
+                    if self.currentWorkTime <= 0 {
+                        self.workSessionsCompleted += 1
+                        self.timer?.invalidate()
+                        
+                        if self.workSessionsCompleted == 8 {
+                            self.showRestPrompt = true
+                        } else {
+                            self.startBreakAlarm()
+                        }
+                    }
+                }
             }
         } else {
-            // Restore break alarm state
+            // 恢复休息阶段的警报状态
             startBreakAlarm()
         }
         
