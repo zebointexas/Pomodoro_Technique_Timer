@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UserNotifications // 引入 UserNotifications 框架
 
 @main
 struct PomodoroTimerApp: App {
@@ -168,6 +169,7 @@ struct ContentView: View {
         }
         .onAppear {
             resetAll()
+            requestNotificationPermission() // 请求通知权限
         }
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .active {
@@ -183,6 +185,69 @@ struct ContentView: View {
                     timer?.invalidate()
                     currentBreakTime = (workSessionsCompleted % 4 == 0) ? longBreakTimeTotal : breakTimeTotal
                 }
+            }
+        }
+    }
+    
+    // 请求通知权限
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if granted {
+                print("通知权限已授予")
+            } else {
+                print("通知权限被拒绝")
+            }
+        }
+    }
+    
+    // 调度工作阶段结束时的通知
+    private func scheduleWorkSessionNotification() {
+        // 移除之前的通知（如果有）
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        
+        let content = UNMutableNotificationContent()
+        content.title = "⚠️ 休息时间到了！"
+        content.body = "警报正在响起，请回到 app 按住两个圆圈开始休息。"
+        content.sound = UNNotificationSound.defaultCriticalSound(withAudioVolume: 1.0)
+        
+        // 设置触发时间为工作阶段的时长
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(currentWorkTime), repeats: false)
+        
+        // 创建通知请求
+        let request = UNNotificationRequest(identifier: "workSessionEnd", content: content, trigger: trigger)
+        
+        // 添加通知
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("调度工作阶段通知失败: \(error)")
+            } else {
+                print("工作阶段通知已调度，将在 \(currentWorkTime) 秒后触发")
+            }
+        }
+    }
+    
+    // 调度休息阶段通知
+    private func scheduleBreakSessionNotification() {
+        // 移除之前的通知（如果有）
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        
+        let content = UNMutableNotificationContent()
+        content.title = "⚠️ 休息时间到了！"
+        content.body = "警报正在响起，请回到 app 按住两个圆圈开始休息。"
+        content.sound = UNNotificationSound.defaultCriticalSound(withAudioVolume: 1.0)
+        
+        // 设置触发时间为立即触发（1 秒后，因为 iOS 要求最小时间间隔）
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        
+        // 创建通知请求
+        let request = UNNotificationRequest(identifier: "breakSessionStart", content: content, trigger: trigger)
+        
+        // 添加通知
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("调度休息阶段通知失败: \(error)")
+            } else {
+                print("休息阶段通知已调度，将在 1 秒后触发")
             }
         }
     }
@@ -224,6 +289,11 @@ struct ContentView: View {
         
         // Determine break time based on session count (long break every 4 sessions)
         currentBreakTime = (workSessionsCompleted % 4 == 0) ? longBreakTimeTotal : breakTimeTotal
+        
+        // 如果 app 已经在后台，发送休息阶段通知
+        if scenePhase == .background {
+            scheduleBreakSessionNotification()
+        }
         
         alarmTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
             if !leftThumbTouching || !rightThumbTouching {
@@ -273,6 +343,9 @@ struct ContentView: View {
         leftThumbTouching = false
         rightThumbTouching = false
         
+        // 调度工作阶段结束的通知
+        scheduleWorkSessionNotification()
+        
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             if currentWorkTime > 0 {
                 currentWorkTime -= 1
@@ -311,6 +384,9 @@ struct ContentView: View {
         showRestPrompt = false
         showRestConfirmation = false
         showStartConfirmation = false
+        
+        // 移除所有未决通知
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     }
     
     // Restore Timer from Background
