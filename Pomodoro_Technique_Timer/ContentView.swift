@@ -408,6 +408,10 @@ struct ContentView: View {
     // Restore Timer from Background
     private func restoreTimerFromBackground() {
         guard let backgroundTime = backgroundTime else { return }
+        guard isTimerRunning else {
+            self.backgroundTime = nil
+            return // 如果计时器未启动，则不执行任何恢复逻辑
+        }
         
         let timePassed = Int(Date().timeIntervalSince(backgroundTime))
         
